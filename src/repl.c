@@ -1,75 +1,124 @@
 #include "repl.h"
 #include "stdio.h"
 #include "string.h"
-#include "readline/readline.h"
 #include "readline/history.h"
+#include "readline/readline.h"
+#include <sys/msg.h>
+#include <sys/types.h>
+#include "stdlib.h"
+#include "ctype.h"
+#include "fcntl.h"
+#include "stdio.h"
+#include "stdlib.h"
+#include "string.h"
+#include "unistd.h"
+#include "vecint.h"
+#include "sys/msg.h"
+#include "sys/stat.h"
 
-#define MAX_COMMAND_LENGTH 1024
+void message_print(Message* msg) {
+    printf("type: %ld\n", msg->type);
+    printf("command: %s\n", msg->info);
+    printf("fifo_name: %s\n", msg->fifo_name);
+}
 
-#define MAX_USERS 2048
-#define MAX_USERNAME_LENGTH 64
-#define MAX_FIFO_FILENAME_LENGTH 64
+char* strip_char(char* s, char c)
+{
+    size_t size;
+    char* end;
+    size = strlen(s);
 
-#define COLOR_BOLD  "\e[1m"
-#define COLOR_OFF   "\e[m"
+    if (!size)
+        return s;
 
-typedef struct {
-    long type;
-    char command[MAX_COMMAND_LENGTH];
-    char fifo_name[MAX_FIFO_FILENAME_LENGTH];
-} Request;
+    end = s + size - 1;
+    while (end >= s && *end == c)
+        end--;
+    *(end + 1) = '\0';
 
-/* typedef struct { */
-/*     char username[MAX_USERNAME_LENGTH]; */
-/*     char command[MAX_COMMAND_LENGTH]; */
-/*     char fifo_name[MAX_FIFO_FILENAME_LENGTH]; */
-/* } ParseResult; */
+    while (*s && *s == c)
+        s++;
 
-/* ParseResult parse_input(char* input) { */
-/*     // 1. read username until you encounter " */
-/*     // 2. read command until you encounter " again */
-/*     // 3. read fifo_name when you encounter " */
-/*     // 4. end reading when you encounter " again. */
+    return s;
+}
 
-/*     ParseResult res; */
+key_t get_requested_user_key(char* username)
+{
+    char config_buf[MAX_CONFIG_BUF_SIZE];
+    int fd, n;
+    int key = -1;
 
-/*     char* pipe_start = strchr(input, '"'); */
-/*     char* pipe_end = strchr(pipe_start+1, '"'); */
-    
-/*     strncpy(res.username, input, pipe_start-input); */
-/*     printf("username: %s\n", res.username); */
+    if ((fd = open("config", O_RDONLY, MAX_CONFIG_BUF_SIZE)) == -1) {
+        perror("Open config file");
+        exit(1);
+    }
 
-/*     strncpy(res.command, pipe_start, pipe_end-pipe_start); */
-/*     printf("command: %s\n", res.command); */
-    
-    
-/*     return res; */
-/* } */
+    while ((n = read(fd, &config_buf, MAX_CONFIG_BUF_SIZE)) > 0) { }
+
+    char *str1, *str2, *saveptr1, *saveptr2, *token, *subtoken;
+    int conv_and_return = 0;
+
+    for (str1 = config_buf;; str1 = NULL) {
+        token = strtok_r(str1, "\n", &saveptr1);
+        if (token == NULL)
+            break;
+        for (str2 = token;; str2 = NULL) {
+            subtoken = strtok_r(str2, ":", &saveptr2);
+            if (subtoken == NULL)
+                break;
+            if (conv_and_return == 1) {
+                return (key_t)atoi(subtoken);
+            }
+            if (strcmp(subtoken, username) == 0) {
+                conv_and_return = 1;
+            }
+        }
+    }
+    if (key == -1) {
+        puts("User not found or configuration file misformatted.");
+        exit(1);
+    }
+    return -1;
+}
 
 void repl_loop(char* login_username)
 {
     char input[MAX_COMMAND_LENGTH + 1];
     char prompt[MAX_USERNAME_LENGTH + 30];
-    char target_username[MAX_USERNAME_LENGTH+1];
-    char command[MAX_COMMAND_LENGTH+1];
-    char fifo_name[MAX_FIFO_FILENAME_LENGTH+1];
+    int msgid;
+    Message message;
 
     sprintf(prompt, COLOR_BOLD "[%s@process-server]$ " COLOR_OFF, login_username);
+    
     while (1) {
-        strcpy(input,readline(prompt));
-        char** tokens = history_tokenize(input);
+        strcpy(input, readline(prompt));
+        add_history(input);
         
+        if (!strlen(input))
+            continue;
+
+        if (strcmp(input, "q") == 0 || strcmp(input, "quit") == 0)
+            exit(0);
+
+        char** tokens = history_tokenize(input);
+
         if (!tokens[0] | !tokens[1] | !tokens[2]) {
-            puts("Invalid command format");
+            puts("Invalid command format.\n"
+                 "Usage: TARGET-USERNAME COMMAND FIFO_NAME");
             continue;
         }
+
+        message.type = 1;
+        message.msg_type = PipeRequest;
+        strcpy(message.info, strip_char(tokens[1], '"'));
+        strcpy(message.fifo_name, tokens[2]);
         
-        printf("%s\n", tokens[0]);
-        printf("%s\n", tokens[1]);
-        printf("%s\n", tokens[2]);
-        
-        strcpy(target_username, tokens[0]);
-        strcpy(command, tokens[1]);
-        strcpy(fifo_name, tokens[2]);
+        /* if (mkfifo(message.fifo_name, 0666) == -1) { */
+        /*     perror("Creating FIFO"); */
+        /*     continue; */
+        /* } */
+
+        msgid = msgget(get_requested_user_key(tokens[0]), 0666);
+        msgsnd(msgid, &message, sizeof(Message)-sizeof(long int), 0);
     }
 }
