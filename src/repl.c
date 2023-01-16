@@ -15,6 +15,7 @@
 #include "vecint.h"
 #include "sys/msg.h"
 #include "sys/stat.h"
+#include "global_fn.h"
 
 void message_print(Message* msg) {
     printf("type: %ld\n", msg->type);
@@ -50,7 +51,7 @@ key_t get_requested_user_key(char* username)
 
     if ((fd = open("config", O_RDONLY, MAX_CONFIG_BUF_SIZE)) == -1) {
         perror("Open config file");
-        exit(1);
+        my_exit();
     }
 
     while ((n = read(fd, &config_buf, MAX_CONFIG_BUF_SIZE)) > 0) { }
@@ -76,7 +77,7 @@ key_t get_requested_user_key(char* username)
     }
     if (key == -1) {
         puts("User not found or configuration file misformatted.");
-        exit(1);
+        my_exit();
     }
     return -1;
 }
@@ -98,7 +99,7 @@ void repl_loop(char* login_username)
             continue;
 
         if (strcmp(input, "q") == 0 || strcmp(input, "quit") == 0)
-            exit(0);
+            my_exit();
 
         char** tokens = history_tokenize(input);
 
