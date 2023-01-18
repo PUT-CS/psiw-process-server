@@ -1,27 +1,4 @@
 #include "repl.h"
-#include "stdio.h"
-#include "string.h"
-#include "readline/history.h"
-#include "readline/readline.h"
-#include <sys/msg.h>
-#include <sys/types.h>
-#include "stdlib.h"
-#include "ctype.h"
-#include "fcntl.h"
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
-#include "unistd.h"
-#include "vecint.h"
-#include "sys/msg.h"
-#include "sys/stat.h"
-#include "global_fn.h"
-
-void message_print(Message* msg) {
-    printf("type: %ld\n", msg->type);
-    printf("command: %s\n", msg->info);
-    printf("fifo_name: %s\n", msg->fifo_name);
-}
 
 char* strip_char(char* s, char c)
 {
@@ -50,11 +27,21 @@ key_t get_requested_user_key(char* username)
     int key = -1;
 
     if ((fd = open("config", O_RDONLY, MAX_CONFIG_BUF_SIZE)) == -1) {
+
         perror("Open config file");
-        my_exit();
+        char* path = malloc(200);
+        sprintf(path, "%s/.config/psiw-process-server/config", getenv("HOME"));
+        printf("Checking in %s...\n", path);
+        if ((fd = open(path, O_RDONLY, MAX_CONFIG_BUF_SIZE)) == -1) {
+            perror("Open config in ~/.config");
+            free(path);
+            my_exit();
+        }
+        free(path);
     }
 
     while ((n = read(fd, &config_buf, MAX_CONFIG_BUF_SIZE)) > 0) { }
+    close(fd);
 
     char *str1, *str2, *saveptr1, *saveptr2, *token, *subtoken;
     int conv_and_return = 0;
@@ -67,12 +54,10 @@ key_t get_requested_user_key(char* username)
             subtoken = strtok_r(str2, ":", &saveptr2);
             if (subtoken == NULL)
                 break;
-            if (conv_and_return == 1) {
+            if (conv_and_return == 1)
                 return (key_t)atoi(subtoken);
-            }
-            if (strcmp(subtoken, username) == 0) {
+            if (strcmp(subtoken, username) == 0)
                 conv_and_return = 1;
-            }
         }
     }
     if (key == -1) {
@@ -80,6 +65,39 @@ key_t get_requested_user_key(char* username)
         my_exit();
     }
     return -1;
+}
+
+void spawn_reader_worker(char* fifo_name)
+{
+    int n;
+    char* buf = (char*)(calloc(sizeof(char), MAX_OUTPUT_SIZE));
+
+    int dirfd = open("/tmp", O_RDONLY | O_DIRECTORY);
+    if (dirfd == -1) {
+        perror("Open /tmp");
+        my_exit();
+    }
+
+    int fd = openat(dirfd, fifo_name, O_RDONLY);
+    if (fd == -1) {
+        perror("Open FIFO in Reader Worker");
+        my_exit();
+    }
+
+    while ((n = read(fd, buf, MAX_OUTPUT_SIZE)) > 0) { }
+    printf("\n%s", buf);
+    printf("\nPress RET to continue...\n");
+
+    if (unlinkat(dirfd, fifo_name, 0) == -1) {
+        perror("Delete FIFO in /tmp");
+        my_exit();
+    }
+
+    free(buf);
+    close(fd);
+    close(dirfd);
+
+    exit(0);
 }
 
 void repl_loop(char* login_username)
@@ -90,11 +108,11 @@ void repl_loop(char* login_username)
     Message message;
 
     sprintf(prompt, COLOR_BOLD "[%s@process-server]$ " COLOR_OFF, login_username);
-    
+
     while (1) {
         strcpy(input, readline(prompt));
         add_history(input);
-        
+
         if (!strlen(input))
             continue;
 
@@ -110,16 +128,27 @@ void repl_loop(char* login_username)
         }
 
         message.type = 1;
-        message.msg_type = PipeRequest;
         strcpy(message.info, strip_char(tokens[1], '"'));
         strcpy(message.fifo_name, tokens[2]);
+
+        // create a fifo, only then send the request (if it succedes)
+        int dirfd;
+        if ((dirfd = open("/tmp", O_RDONLY | O_DIRECTORY)) == -1) {
+            perror("Open /tmp");
+            continue;
+        }
         
-        /* if (mkfifo(message.fifo_name, 0666) == -1) { */
-        /*     perror("Creating FIFO"); */
-        /*     continue; */
-        /* } */
+        if (mkfifoat(dirfd, message.fifo_name, S_IRUSR | S_IWUSR) == -1) {
+            perror("mkfifoat");
+            continue;
+        }
 
         msgid = msgget(get_requested_user_key(tokens[0]), 0666);
-        msgsnd(msgid, &message, sizeof(Message)-sizeof(long int), 0);
+        msgsnd(msgid, &message, sizeof(Message) - sizeof(long int), 0);
+
+        if (fork() == 0)
+            spawn_reader_worker(message.fifo_name);
+
+        close(dirfd);
     }
 }

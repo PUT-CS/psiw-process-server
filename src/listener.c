@@ -1,41 +1,49 @@
 #include "listener.h"
-#include "global_fn.h"
-#include "repl.h"
-#include "string.h"
-#include <stdio.h>
 #include <stdlib.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
-void loop_pipe(char*** cmd)
+void loop_pipe(char*** cmd, Message* msg)
 {
-    int p[2];
-    pid_t pid;
+    int fds[2];
+    int pid;
     int fd_in = 0;
 
+    int dirfd = open("/tmp", O_RDONLY | O_DIRECTORY);
+    int fd_fifo = openat(dirfd, msg->fifo_name, O_WRONLY);
+    printf("\n");
+
     while (*cmd != NULL) {
-        pipe(p);
+        if (pipe(fds) == -1) {
+            perror("Make pipe");
+            my_exit();
+        }
         if ((pid = fork()) == -1) {
-            exit(EXIT_FAILURE);
+            perror("Forking");
+            my_exit();
         } else if (pid == 0) {
             dup2(fd_in, 0); // change the input according to the old one
             if (*(cmd + 1) != NULL)
-                dup2(p[1], 1);
-            close(p[0]);
-            execvp((*cmd)[0], *cmd);
+                dup2(fds[1], 1);
+            if (*(cmd + 1) == NULL) {
+                // Last command
+                dup2(fd_fifo, 1);
+            }
+            close(fds[0]);
+            execvp(*(cmd)[0], *cmd);
+            close(fd_fifo);
             exit(EXIT_FAILURE);
         } else {
             wait(NULL);
-            close(p[1]);
-            fd_in = p[0]; // save the input for the next command
+            close(fds[1]);
+            fd_in = fds[0]; // save the input for the next command
             cmd++;
         }
     }
+    close(fd_fifo);
+    close(dirfd);
 }
 
-int parse_command(char* msg, char*** save_cmd)
+void parse_command(char* msg, char*** save_cmd)
 {
     char *str1, *str2, *token, *subtoken;
     char *saveptr1, *saveptr2;
@@ -43,9 +51,8 @@ int parse_command(char* msg, char*** save_cmd)
 
     for (str1 = msg;; str1 = NULL) {
         token = strtok_r(str1, "|", &saveptr1);
-        if (token == NULL) {
+        if (token == NULL)
             break;
-        }
         if (i > MAX_PIPES) {
             puts("Exceeded the pipe number limit. Please compile the program with"
                  "different values in the flags that define the limit.");
@@ -64,57 +71,16 @@ int parse_command(char* msg, char*** save_cmd)
         i++;
     }
     save_cmd[i] = NULL;
-    return i;
-}
-
-void free_cmd(char*** cmd, int x, int y)
-{
-    size_t i, j;
-    for (i = 0; i < x; ++i) {
-        if (cmd[i] != NULL) {
-            for (j = 0; j < y; ++j)
-                free(cmd[i][j]);
-            free(cmd[i]);
-        }
-    }
-    free(cmd);
-}
-
-char*** alloc_cmd(int x, int y, int z)
-{
-    char*** cmd = (char***)(malloc(x * sizeof(char**)));
-    for (int i = 0; i < x; i++) {
-        cmd[i] = (char**)(malloc(y * sizeof(char*)));
-        for (int j = 0; j < y; j++) {
-            cmd[i][j] = (char*)(malloc(z * sizeof(char)));
-        }
-    }
-    return cmd;
-}
-
-void init_cmd(char*** cmd, int x, int y, int z)
-{
-    for (int i = 0; i < x; i++) {
-        for (int j = 0; j < y; j++) {
-            for (int k = 0; k < z; k++) {
-                cmd[i][j][k] = '\0';
-            }
-        }
-    }
 }
 
 void handle_pipe_request(Message* msg)
 {
     char*** cmd = alloc_cmd(MAX_PIPES, MAX_ARGS, MAX_ARG_LEN);
     init_cmd(cmd, MAX_PIPES, MAX_ARGS, MAX_ARG_LEN);
-    int pipes = parse_command(msg->info, cmd);
-    loop_pipe(cmd);
+    parse_command(msg->info, cmd);
+    loop_pipe(cmd, msg);
     free_cmd(cmd, MAX_PIPES, MAX_ARGS);
-}
-
-void handle_pipe_done(Message* msg)
-{
-    msg->type--;
+    exit(0);
 }
 
 void listener_loop(char* username)
@@ -126,18 +92,39 @@ void listener_loop(char* username)
     while (1) {
         msgrcv(msgid, &received_message,
             sizeof(Message) - sizeof(long int), 1, 0);
-        message_print(&received_message);
 
-        switch (received_message.msg_type) {
-        case PipeRequest:
+        if (fork() == 0)
             handle_pipe_request(&received_message);
-            break;
-        case PipeDone:
-            handle_pipe_done(&received_message);
-            break;
-        default:
-            printf("\nUnknown message type\n");
-            break;
-        }
     }
+}
+
+void free_cmd(char*** cmd, int x, int y)
+{
+    int i, j;
+    for (i = 0; i < x; ++i)
+        if (cmd[i] != NULL) {
+            for (j = 0; j < y; ++j)
+                free(cmd[i][j]);
+            free(cmd[i]);
+        }
+    free(cmd);
+}
+
+char*** alloc_cmd(int x, int y, int z)
+{
+    char*** cmd = (char***)(malloc(x * sizeof(char**)));
+    for (int i = 0; i < x; i++) {
+        cmd[i] = (char**)(malloc(y * sizeof(char*)));
+        for (int j = 0; j < y; j++)
+            cmd[i][j] = (char*)(malloc(z * sizeof(char)));
+    }
+    return cmd;
+}
+
+void init_cmd(char*** cmd, int x, int y, int z)
+{
+    for (int i = 0; i < x; i++)
+        for (int j = 0; j < y; j++)
+            for (int k = 0; k < z; k++)
+                cmd[i][j][k] = '\0';
 }

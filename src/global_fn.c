@@ -8,5 +8,5 @@ void my_exit(){
 void my_sigint_handler(int signum) {
     pid_t parent_pid = getpid();
     pid_t pgid = getpgid(parent_pid);
-    kill(-pgid, SIGKILL);
+    kill(-pgid, SIGTERM);
 }
