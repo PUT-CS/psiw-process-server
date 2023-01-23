@@ -6,7 +6,5 @@ void my_exit(){
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 void my_sigint_handler(int signum) {
-    pid_t parent_pid = getpid();
-    pid_t pgid = getpgid(parent_pid);
-    kill(-pgid, SIGTERM);
+    kill(-getpgid(getpid()), SIGTERM);
 }

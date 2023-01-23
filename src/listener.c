@@ -1,6 +1,4 @@
 #include "listener.h"
-#include <stdlib.h>
-#include <unistd.h>
 
 void loop_pipe(char*** cmd, Message* msg)
 {
@@ -76,7 +74,6 @@ void parse_command(char* msg, char*** save_cmd)
 void handle_pipe_request(Message* msg)
 {
     char*** cmd = alloc_cmd(MAX_PIPES, MAX_ARGS, MAX_ARG_LEN);
-    init_cmd(cmd, MAX_PIPES, MAX_ARGS, MAX_ARG_LEN);
     parse_command(msg->info, cmd);
     loop_pipe(cmd, msg);
     free_cmd(cmd, MAX_PIPES, MAX_ARGS);
@@ -100,10 +97,9 @@ void listener_loop(char* username)
 
 void free_cmd(char*** cmd, int x, int y)
 {
-    int i, j;
-    for (i = 0; i < x; ++i)
+    for (int i = 0; i < x; ++i)
         if (cmd[i] != NULL) {
-            for (j = 0; j < y; ++j)
+            for (int j = 0; j < y; ++j)
                 free(cmd[i][j]);
             free(cmd[i]);
         }
@@ -112,19 +108,11 @@ void free_cmd(char*** cmd, int x, int y)
 
 char*** alloc_cmd(int x, int y, int z)
 {
-    char*** cmd = (char***)(malloc(x * sizeof(char**)));
+    char*** cmd = (char***)(calloc(x, sizeof(char**)));
     for (int i = 0; i < x; i++) {
-        cmd[i] = (char**)(malloc(y * sizeof(char*)));
+        cmd[i] = (char**)(calloc(y, sizeof(char*)));
         for (int j = 0; j < y; j++)
-            cmd[i][j] = (char*)(malloc(z * sizeof(char)));
+            cmd[i][j] = (char*)(calloc(z, sizeof(char)));
     }
     return cmd;
-}
-
-void init_cmd(char*** cmd, int x, int y, int z)
-{
-    for (int i = 0; i < x; i++)
-        for (int j = 0; j < y; j++)
-            for (int k = 0; k < z; k++)
-                cmd[i][j][k] = '\0';
 }

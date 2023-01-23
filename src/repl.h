@@ -1,21 +1,14 @@
 #ifndef REPL
 #define REPL
 
-#include <sys/ipc.h>
 #include "stdio.h"
-#include "string.h"
 #include "readline/history.h"
 #include "readline/readline.h"
-#include <sys/msg.h>
-#include <sys/types.h>
 #include "stdlib.h"
-#include "ctype.h"
 #include "fcntl.h"
 #include "stdio.h"
 #include "stdlib.h"
-#include "string.h"
 #include "unistd.h"
-#include "vecint.h"
 #include "sys/msg.h"
 #include "sys/stat.h"
 #include "global_fn.h"

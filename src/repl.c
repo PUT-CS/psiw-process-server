@@ -1,25 +1,5 @@
 #include "repl.h"
 
-char* strip_char(char* s, char c)
-{
-    size_t size;
-    char* end;
-    size = strlen(s);
-
-    if (!size)
-        return s;
-
-    end = s + size - 1;
-    while (end >= s && *end == c)
-        end--;
-    *(end + 1) = '\0';
-
-    while (*s && *s == c)
-        s++;
-
-    return s;
-}
-
 key_t get_requested_user_key(char* username)
 {
     char config_buf[MAX_CONFIG_BUF_SIZE];
@@ -88,13 +68,13 @@ void spawn_reader_worker(char* fifo_name)
     printf("\n%s", buf);
     printf("\nPress RET to continue...\n");
 
+    close(fd);
     if (unlinkat(dirfd, fifo_name, 0) == -1) {
         perror("Delete FIFO in /tmp");
         my_exit();
     }
 
     free(buf);
-    close(fd);
     close(dirfd);
 
     exit(0);
@@ -112,7 +92,7 @@ void repl_loop(char* login_username)
     while (1) {
         strcpy(input, readline(prompt));
         add_history(input);
-
+        
         if (!strlen(input))
             continue;
 
@@ -131,13 +111,12 @@ void repl_loop(char* login_username)
         strcpy(message.info, strip_char(tokens[1], '"'));
         strcpy(message.fifo_name, tokens[2]);
 
-        // create a fifo, only then send the request (if it succedes)
         int dirfd;
         if ((dirfd = open("/tmp", O_RDONLY | O_DIRECTORY)) == -1) {
             perror("Open /tmp");
             continue;
         }
-        
+
         if (mkfifoat(dirfd, message.fifo_name, S_IRUSR | S_IWUSR) == -1) {
             perror("mkfifoat");
             continue;
@@ -151,4 +130,24 @@ void repl_loop(char* login_username)
 
         close(dirfd);
     }
+}
+
+char* strip_char(char* s, char c)
+{
+    size_t size;
+    char* end;
+    size = strlen(s);
+
+    if (!size)
+        return s;
+
+    end = s + size - 1;
+    while (end >= s && *end == c)
+        end--;
+    *(end + 1) = '\0';
+
+    while (*s && *s == c)
+        s++;
+
+    return s;
 }
